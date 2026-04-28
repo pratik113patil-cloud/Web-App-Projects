@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "streamlit run app.py --server.port 3000 --server.address 0.0.0.0",
-    "build": "pip3 install streamlit pandas",
-    "preview": "streamlit run app.py --server.port 3000 --server.address 0.0.0.0",
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "echo 'Skipping lint for Python'"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
