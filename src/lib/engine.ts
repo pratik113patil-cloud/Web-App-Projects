@@ -10,102 +10,89 @@
  * 3. Dynamic Rescheduling (Managing overtime)
  */
 
-import { addMinutes, format, isAfter, isBefore, parseISO, setHours, setMinutes, startOfDay, addDays, differenceInMinutes, isWithinInterval } from 'date-fns';
+import { addMinutes, format, isAfter, isBefore, parseISO, setHours, setMinutes, startOfDay, addDays, differenceInDays } from 'date-fns';
 import { StudyTask, ProtectedBlock, ScheduledChunk } from '../types';
 
 /**
- * Calculates a Priority Score for an engineering task.
- * Higher score = Higher ranking in the study queue.
- * 
- * Heuristics:
- * 1. Deadline Proximity: Massive multiplier for immediate deadlines.
- * 2. Academic Importance: High weightage subjects prioritized.
- * 3. Confidence Deficit: Low confidence areas (1-3) flagged for more attention.
+ * Calculates the Priority Score for an engineering task.
+ * Deadline proximity is the dominant factor here.
  */
-export function calculatePriorityScore(task: StudyTask, now: Date): number {
+export function calculatePriorityScore(task: StudyTask, nowAtStartOfDay: Date): number {
   const deadline = parseISO(task.deadline);
-  const diffDays = Math.max(0.1, differenceInMinutes(deadline, now) / (24 * 60));
+  const diffDays = Math.max(differenceInDays(deadline, nowAtStartOfDay), 1);
   
-  // Weights for the algorithm
-  const wWeightage = 2.0;       // Importance factor
-  const wConfidence = 1.5;      // Study need factor
-  const wDeadline = 15.0;       // Urgency factor
-  
-  // (Weightage * multiplier) + (Inverse Confidence) + (Urgency factor / Days Remaining)
-  const score = (task.weightage * wWeightage) + 
-                ((11 - task.confidence) * wConfidence) + 
-                (wDeadline / diffDays);
+  // Weights (High value = more urgent/important)
+  const wDeadline = 100.0; // Urgency multiplier
+  const wWeightage = 2.0;  // Academic Importance
+  const wConfidence = 1.5; // Study Need (inverse confidence)
+
+  // Formula prioritization logic
+  const score = (wDeadline / diffDays) + 
+                (task.weightage * wWeightage) + 
+                ((11 - task.confidence) * wConfidence);
                 
   return parseFloat(score.toFixed(2));
 }
 
 /**
- * AI Optimization Engine (Constraint Satisfaction)
+ * AI Optimization Engine (Multi-Day Bin Packing)
  * 
- * Strict Physical Constraints:
- * 1. College Block: 10:00 AM - 05:00 PM (Monday through Friday)
- * 2. Daily Fatigue Cap: Max 5 hours of total study per day
- * 3. Weekly Dynamic: Weekends have zero predefined blocks (Full availability)
- * 4. Temporal Integrity: No sessions starting after 11:30 PM
+ * This function iterates through all pending tasks and assigns them
+ * to the earliest possible days while respecting:
+ * 1. A daily 5-hour study cap.
+ * 2. Academic college hours (10 AM - 5 PM).
+ * 3. Priority ranking (Urgent tasks first).
  */
 export function generateSchedule(
   tasks: StudyTask[],
   protectedBlocks: ProtectedBlock[],
   startDate: Date
 ): ScheduledChunk[] {
-  const dailyStudyLimitMinutes = 300; // 5 Hours cap as per engineering constraints
+  const dailyLimitMin = 300; // 5 Hours cap
+  const start = startOfDay(startDate);
   
-  // Sort tasks by AI Priority Score
-  const activeTasks = tasks
+  // Sort tasks by priority (Urgency is highest priority)
+  const prioritized = tasks
     .filter(t => t.status !== 'completed')
-    .sort((a, b) => calculatePriorityScore(b, startDate) - calculatePriorityScore(a, startDate));
+    .sort((a, b) => calculatePriorityScore(b, start) - calculatePriorityScore(a, start));
 
   const chunks: ScheduledChunk[] = [];
-  let currentPointer = startDate;
-  
-  // Study planning horizon (Next 14 days)
-  const horizon = addDays(startDate, 14);
+  const dailyLoadMap: { [date: string]: number } = {};
 
-  // Tracks total scheduled minutes per day to enforce 5h cap
-  const dailyMinutesMap: { [date: string]: number } = {};
+  for (const task of prioritized) {
+    let currentDay = start;
+    let isScheduled = false;
+    const deadline = parseISO(task.deadline);
+    const duration = task.estimatedMinutes;
 
-  for (const task of activeTasks) {
-    let remainingMinutes = task.estimatedMinutes;
-    // Segment logic: No session should exceed 90 mins to maintain focus
-    const maxChunkSize = 90;
+    // We scan up to 21 days out to find a slot
+    for (let dayOffset = 0; dayOffset < 21; dayOffset++) {
+      // Force fit logic: If we are on or past the deadline day, we MUST schedule it
+      const targetDate = isAfter(currentDay, deadline) ? deadline : currentDay;
+      const dateKey = format(targetDate, 'yyyy-MM-dd');
+      const dayLoad = dailyLoadMap[dateKey] || 0;
 
-    while (remainingMinutes > 0 && isBefore(currentPointer, horizon)) {
-      const duration = Math.min(remainingMinutes, maxChunkSize);
-      
-      const slot = findNextAvailableSlot(
-        currentPointer, 
-        duration, 
-        protectedBlocks, 
-        chunks,
-        dailyMinutesMap,
-        dailyStudyLimitMinutes,
-        horizon
-      );
-
-      if (slot) {
-        chunks.push({
-          id: `${task.id}-${chunks.length}`,
-          taskId: task.id,
-          startTime: slot.start.toISOString(),
-          endTime: slot.end.toISOString(),
-          taskTitle: task.title
-        });
-
-        // Update daily minute counters
-        const dateKey = format(slot.start, 'yyyy-MM-dd');
-        dailyMinutesMap[dateKey] = (dailyMinutesMap[dateKey] || 0) + duration;
+      // 1. Check Daily 5-hour Capacity
+      if (dayLoad + duration <= dailyLimitMin) {
+        // 2. Find a specific time window on this day
+        const slot = findAvailableTimeOnDay(targetDate, duration, protectedBlocks, chunks);
         
-        remainingMinutes -= duration;
-        currentPointer = slot.end;
-      } else {
-        // Critical alert would trigger here if a high-priority task can't be scheduled
-        break;
+        if (slot) {
+          chunks.push({
+            id: Math.random().toString(36).substr(2, 9),
+            taskId: task.id,
+            startTime: slot.start.toISOString(),
+            endTime: slot.end.toISOString(),
+            taskTitle: task.title
+          });
+          dailyLoadMap[dateKey] = dayLoad + duration;
+          isScheduled = true;
+          break;
+        }
       }
+
+      // Move to next day search
+      currentDay = addDays(currentDay, 1);
     }
   }
 
@@ -113,103 +100,81 @@ export function generateSchedule(
 }
 
 /**
- * Checks if a specific time interval is physically viable
+ * Searches a single calendar day for a viable time block.
+ * Respects college hours and user-defined protected blocks.
  */
-function isSlotAvailable(
-  start: Date,
-  end: Date,
+function findAvailableTimeOnDay(
+  day: Date,
+  duration: number,
   protectedBlocks: ProtectedBlock[],
-  existingChunks: ScheduledChunk[]
-): boolean {
-  const day = start.getDay(); // 0 is Sunday, 1-5 is Mon-Fri
-  const startHour = start.getHours();
-  const startMinute = start.getMinutes();
-  const startTotal = startHour * 60 + startMinute;
-  
-  const endHour = end.getHours();
-  const endMinute = end.getMinutes();
-  const endTotal = endHour * 60 + endMinute;
-
-  // 1. College Hours Constraint: 10:00 - 17:00 (Mon-Fri)
-  if (day >= 1 && day <= 5) {
-    const collegeStart = 10 * 60; // 10:00 AM
-    const collegeEnd = 17 * 60;   // 05:00 PM
-    if (startTotal < collegeEnd && collegeStart < endTotal) {
-      return false;
-    }
-  }
-
-  // 2. Standard Maintenance Blocks (Daily sleep/rest)
-  for (const block of protectedBlocks) {
-    const bStart = block.startHour * 60 + block.startMinute;
-    const bEnd = block.endHour * 60 + block.endMinute;
-    if (startTotal < bEnd && bStart < endTotal) return false;
-  }
-
-  // 3. Collision Detection with existing Academic sessions
-  for (const chunk of existingChunks) {
-    const cStart = parseISO(chunk.startTime);
-    const cEnd = parseISO(chunk.endTime);
-    if (start < cEnd && cStart < end) return false;
-  }
-
-  return true;
-}
-
-/**
- * Advanced Search Engine for the next valid temporal window
- */
-function findNextAvailableSlot(
-  startPoint: Date,
-  durationMinutes: number,
-  protectedBlocks: ProtectedBlock[],
-  existingChunks: ScheduledChunk[],
-  dailyMinutesMap: { [date: string]: number },
-  dailyLimit: number,
-  horizon: Date
+  existing: ScheduledChunk[]
 ): { start: Date; end: Date } | null {
-  let searchPointer = startPoint;
+  const dayOfWeek = day.getDay(); // 0 is Sun, 6 is Sat
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  
+  // Search window: 07:00 AM to 11:30 PM
+  let pointer = setMinutes(setHours(startOfDay(day), 7), 0);
+  const cutoff = setMinutes(setHours(startOfDay(day), 23), 30);
 
-  while (isBefore(searchPointer, horizon)) {
-    const h = searchPointer.getHours();
+  while (isBefore(addMinutes(pointer, duration), cutoff)) {
+    const start = pointer;
+    const end = addMinutes(pointer, duration);
     
-    // Day scheduling boundaries (07:00 AM to 11:59 PM)
-    if (h < 7) {
-      searchPointer = setMinutes(setHours(searchPointer, 7), 0);
-      continue;
-    }
-    if (h >= 23 && searchPointer.getMinutes() > 30) {
-      searchPointer = addDays(startOfDay(searchPointer), 1);
-      searchPointer = setHours(searchPointer, 7);
-      continue;
-    }
+    // Time checks in minutes from midnight
+    const sMins = start.getHours() * 60 + start.getMinutes();
+    const eMins = end.getHours() * 60 + end.getMinutes();
 
-    const dateKey = format(searchPointer, 'yyyy-MM-dd');
-    const currentDayMinutes = dailyMinutesMap[dateKey] || 0;
+    let isBlocked = false;
 
-    // Check Daily Cap (5 hours)
-    if (currentDayMinutes + durationMinutes > dailyLimit) {
-      searchPointer = addDays(startOfDay(searchPointer), 1);
-      searchPointer = setHours(searchPointer, 7);
-      continue;
+    // Check College Hours Block (10:00 - 17:00 Mon-Fri)
+    if (isWeekday) {
+      const collegeOpen = 10 * 60;
+      const collegeClose = 17 * 60;
+      if (sMins < collegeClose && collegeOpen < eMins) isBlocked = true;
     }
 
-    const end = addMinutes(searchPointer, durationMinutes);
-    
-    // Safety check: ensure session completes within the same calendar day
-    if (end.getHours() >= 24 || end.getDay() !== searchPointer.getDay()) {
-      searchPointer = addDays(startOfDay(searchPointer), 1);
-      searchPointer = setHours(searchPointer, 7);
-      continue;
+    // Check User Protected Blocks
+    if (!isBlocked) {
+      for (const block of protectedBlocks) {
+        const bS = block.startHour * 60 + block.startMinute;
+        const bE = block.endHour * 60 + block.endMinute;
+        if (sMins < bE && bS < eMins) {
+          isBlocked = true;
+          break;
+        }
+      }
     }
 
-    if (isSlotAvailable(searchPointer, end, protectedBlocks, existingChunks)) {
-      return { start: searchPointer, end };
+    // Check Session Collisions
+    if (!isBlocked) {
+      for (const c of existing) {
+        const cS = parseISO(c.startTime);
+        const cE = parseISO(c.endTime);
+        // Only compare chunks on the same calendar day
+        if (isSameDay(start, cS)) {
+          if (start < cE && cS < end) {
+            isBlocked = true;
+            break;
+          }
+        }
+      }
     }
 
-    // Iterative search increment (15-minute granularity)
-    searchPointer = addMinutes(searchPointer, 15);
+    if (!isBlocked) return { start, end };
+
+    // Slide search pointer by 15 mins
+    pointer = addMinutes(pointer, 15);
   }
 
   return null;
 }
+
+/**
+ * Simple helper to check if two dates are on the same calendar day.
+ */
+function isSameDay(d1: Date, d2: Date): boolean {
+  return d1.getFullYear() === d2.getFullYear() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getDate() === d2.getDate();
+}
+

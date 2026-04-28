@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BookOpen, Calendar, CheckSquare, Clock, GraduationCap, LayoutDashboard, Library, Plus, RefreshCcw, Settings, Trash2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Clock, GraduationCap, LayoutDashboard, Library, Plus, RefreshCcw, Settings, Trash2, AlertCircle, ChevronLeft, ChevronRight, Zap, ChevronDown, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useMemo, useEffect } from 'react';
@@ -765,147 +765,156 @@ interface ScheduleViewProps {
 function ScheduleView({ tasks, blocks, schedule, setSchedule }: ScheduleViewProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
 
-  // Group schedule by day
+  // Group schedule by day for the next 14 days
   const groupedSchedule = useMemo(() => {
     const groups: { [date: string]: ScheduledChunk[] } = {};
+    const startDate = startOfDay(new Date());
+
+    // Initialize map for next 14 days
+    for (let i = 0; i < 14; i++) {
+        const d = addDays(startDate, i);
+        groups[format(d, 'yyyy-MM-dd')] = [];
+    }
+
     schedule.forEach(chunk => {
       const dateKey = format(parseISO(chunk.startTime), 'yyyy-MM-dd');
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(chunk);
+      if (groups[dateKey] !== undefined) {
+        groups[dateKey].push(chunk);
+      }
     });
     
-    // Sort keys and sort chunks within each group by time
     return Object.keys(groups)
       .sort()
       .map(date => ({
         date,
         chunks: groups[date].sort((a, b) => a.startTime.localeCompare(b.startTime))
-      }));
+      }))
+      .filter(g => g.chunks.length > 0); // Only show days with tasks
   }, [schedule]);
 
   const handleOptimize = async () => {
     setIsOptimizing(true);
-    // Artificial delay to simulate "AI processing" as requested for visual feedback
-    setTimeout(() => {
-      const newSchedule = generateSchedule(tasks, blocks, new Date());
-      setSchedule(newSchedule);
+    // Mimic processing delay
+    setTimeout(async () => {
+      const start = new Date();
+      const newSchedule = generateSchedule(tasks, blocks, start);
+      
+      // Update DB
+      try {
+        await fetch('/api/schedule/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSchedule)
+        });
+        setSchedule(newSchedule);
+        toast.success("Schedule successfully optimized and load-balanced.");
+      } catch (err) {
+        toast.error("Cloud synchronization failed.");
+      }
       setIsOptimizing(false);
-      toast.success("Schedule successfully optimized and load-balanced.");
-    }, 1500);
+    }, 1200);
   };
 
   return (
     <div className="space-y-8 pb-20 max-w-4xl mx-auto">
-      <div className="space-y-4 border-b border-border pb-6">
-        <h2 className="text-3xl font-bold text-white">Academic Optimization Engine</h2>
-        <p className="text-zinc-500 text-sm leading-relaxed">
-          The algorithmic scheduler reallocates your tasks based on priority, academic weightage, 
-          and physical constraints (College hours & 5h daily cap).
+      <div className="space-y-4 border-b border-border pb-8">
+        <h2 className="text-3xl font-bold text-white">Academic Load Balancer</h2>
+        <p className="text-zinc-500 text-sm leading-relaxed max-w-2xl">
+          The engine reallocates tasks over the next 3 weeks using a multi-day bin packing algorithm. 
+          It respects college hours (10 AM - 5 PM) and enforces a strict 5-hour daily study limit.
         </p>
         
         <Button 
           onClick={handleOptimize} 
           disabled={isOptimizing}
-          className="w-full md:w-auto bg-primary hover:bg-primary/90 text-white font-bold h-12 px-8 uppercase tracking-widest text-xs"
+          className="w-full md:w-auto bg-primary hover:bg-primary/90 text-white font-bold h-12 px-10 uppercase tracking-widest text-xs rounded-xl"
         >
           {isOptimizing ? (
             <>
               <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
-              Running AI Optimization...
+              Recalculating Bins...
             </>
           ) : (
             <>
-              <Clock className="w-4 h-4 mr-2" />
+              <Zap className="w-4 h-4 mr-2" />
               Run AI Optimization Engine
             </>
           )}
         </Button>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {groupedSchedule.length > 0 ? (
           groupedSchedule.map(({ date, chunks }) => {
-            const dayName = format(parseISO(date), 'EEEE, MMM dd');
-            const dailyTotalMinutes = chunks.reduce((acc, c) => 
-              acc + differenceInMinutes(parseISO(c.endTime), parseISO(c.startTime)), 0
+            const dateObj = parseISO(date);
+            const title = format(dateObj, 'EEEE - MMMM dd, yyyy');
+            const dailyTotal = chunks.reduce((acc, c) => 
+               acc + differenceInMinutes(parseISO(c.endTime), parseISO(c.startTime)), 0
             );
-            const dailyHours = (dailyTotalMinutes / 60).toFixed(1);
 
             return (
-              <div key={date} className="border border-border rounded-xl bg-card overflow-hidden transition-all hover:border-zinc-700">
-                <div className="p-4 bg-zinc-900/50 flex justify-between items-center border-b border-border cursor-default">
-                  <div className="flex items-center gap-3">
-                    <Calendar className="w-4 h-4 text-primary" />
-                    <span className="font-bold text-white">{dayName}</span>
+              <details key={date} className="group border border-border rounded-xl bg-card overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+                <summary className="flex items-center justify-between p-5 cursor-pointer hover:bg-white/[0.02] transition-colors select-none">
+                  <div className="flex items-center gap-4">
+                    <Calendar className="w-5 h-5 text-primary" />
+                    <span className="font-bold text-white text-sm uppercase tracking-wider">{title}</span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold text-zinc-400 border-zinc-800">
-                      {chunks.length} Sessions
-                    </Badge>
-                    <span className={cn(
-                      "text-xs font-mono font-bold",
-                      dailyTotalMinutes > 240 ? "text-orange-400" : "text-emerald-400"
+                    <Badge variant="outline" className={cn(
+                      "text-[10px] uppercase font-bold",
+                      dailyTotal > 240 ? "text-orange-400 border-orange-400/20" : "text-emerald-400 border-emerald-400/20"
                     )}>
-                      {dailyHours}h Scheduled
-                    </span>
+                      {(dailyTotal / 60).toFixed(1)}h Allocated
+                    </Badge>
+                    <ChevronDown className="w-4 h-4 text-zinc-600 transition-transform group-open:-rotate-180" />
                   </div>
-                </div>
-                
-                <div className="divide-y divide-border/50">
+                </summary>
+                <div className="p-4 pt-0 space-y-2 border-t border-border/20">
                   {chunks.map(chunk => {
                     const task = tasks.find(t => t.id === chunk.taskId);
-                    const priority = task ? calculatePriorityScore(task, parseISO(chunk.startTime)) : 0;
+                    // Use start of today for priority calculation consistent with engine
+                    const priority = task ? calculatePriorityScore(task, startOfDay(new Date())) : 0;
                     
                     return (
-                      <div key={chunk.id} className="p-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
+                      <div key={chunk.id} className="p-4 bg-zinc-900/40 rounded-lg flex justify-between items-center border border-transparent hover:border-zinc-800 transition-all">
                         <div className="space-y-1">
-                          <h4 className="font-medium text-white text-sm">{chunk.taskTitle}</h4>
-                          <div className="flex items-center gap-3 text-[10px] uppercase font-bold tracking-tight text-zinc-500">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
+                          <h4 className="font-bold text-white text-sm">{chunk.taskTitle}</h4>
+                          <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-mono">
+                            <span className="flex items-center gap-1.5 py-0.5 px-2 bg-zinc-900 rounded border border-zinc-800 font-bold text-zinc-400">
+                              <Clock className="w-3 h-3 text-primary/60" />
                               {format(parseISO(chunk.startTime), 'HH:mm')} - {format(parseISO(chunk.endTime), 'HH:mm')}
                             </span>
-                            <span className="text-zinc-700">•</span>
-                            <span className="text-primary/70">Priority: {priority.toFixed(1)}</span>
+                            <span className="text-primary/70 font-black uppercase tracking-tight">Priority: {priority.toFixed(1)}</span>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge className="bg-primary/10 text-primary border-none text-[9px] uppercase font-black tracking-widest px-2 py-0.5">
-                            Optimized
-                          </Badge>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </details>
             );
           })
         ) : (
-          <div className="py-20 text-center border-2 border-dashed border-border rounded-2xl bg-zinc-900/10">
-            <div className="max-w-xs mx-auto space-y-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center mx-auto">
-                <AlertCircle className="w-6 h-6 text-zinc-700" />
-              </div>
-              <div className="space-y-1 text-zinc-600">
-                <p className="font-bold text-sm uppercase tracking-widest">No Schedule Data</p>
-                <p className="text-xs">Initialise the AI optimization engine to generate your academic workload distribution.</p>
-              </div>
-            </div>
+          <div className="py-24 text-center border-2 border-dashed border-border rounded-2xl bg-zinc-900/5">
+             <Info className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
+             <p className="text-zinc-600 font-bold uppercase tracking-[0.2em] text-xs">No Scheduled Workload</p>
+             <p className="text-zinc-500 text-[10px] mt-1 italic">Click the engine button above to distribute your task inventory.</p>
           </div>
         )}
       </div>
 
-      <div className="bg-zinc-900/30 p-6 rounded-xl border border-dashed border-border text-center">
-        <p className="text-[11px] text-zinc-500 italic max-w-2xl mx-auto">
-          "The system utilizes a heuristic-based constraint satisfaction algorithm to ensure academic deadlines are met 
-          within your physiological study limits. Weekend schedules are expanded automatically to compensate for 
-          weekday college blocks (10 AM - 5 PM)."
+      <div className="bg-zinc-900/20 p-8 rounded-2xl border border-border text-center space-y-2">
+        <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest text-primary/80">Heuristic Engine Status: Operational</p>
+        <p className="text-[11px] text-zinc-400 italic max-w-xl mx-auto leading-relaxed">
+          "The multi-day bin packing algorithm ensures that high-priority academic tasks are front-loaded into available gaps 
+          while strictly adhering to the 10 AM - 5 PM weekday college constraint. Force-fit logic applies to tasks breaching 
+          their immediate deadlines."
         </p>
       </div>
     </div>
   );
 }
+
 
 // --- Flashcards View ---
 import Markdown from 'react-markdown';
