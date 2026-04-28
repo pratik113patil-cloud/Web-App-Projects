@@ -1,0 +1,6 @@
+{
+  "name": "Smart Study Planner",
+  "description": "An intelligent scheduling and resource management tool tailored for engineering students, featuring dynamic task reshuffling and spaced-repetition learning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
