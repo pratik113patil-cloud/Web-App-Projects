@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BookOpen, Calendar, CheckSquare, Clock, GraduationCap, LayoutDashboard, Library, Plus, RefreshCcw, Settings, Trash2, AlertCircle, ChevronLeft, ChevronRight, Zap, ChevronDown, Info } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Clock, GraduationCap, LayoutDashboard, Library, Plus, RefreshCcw, Settings, Trash2, AlertCircle, ChevronLeft, ChevronRight, Zap, ChevronDown, Info, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useMemo, useEffect } from 'react';
@@ -920,6 +920,7 @@ function ScheduleView({ tasks, blocks, schedule, setSchedule }: ScheduleViewProp
 import Markdown from 'react-markdown';
 function FlashcardsView({ cards, setCards }: { cards: Flashcard[], setCards: (cards: Flashcard[]) => void }) {
   const [activeDeck, setActiveDeck] = useState('General');
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
   
   // State variables for main tab review
   const [mainTabCardIndex, setMainTabCardIndex] = useState(0);
@@ -952,9 +953,15 @@ function FlashcardsView({ cards, setCards }: { cards: Flashcard[], setCards: (ca
     setCards(cards.map(c => c.id === id ? { ...c, deck_status: status } : c));
     setMainTabCardFlipped(false);
     toast.success(`Card marked as ${status}`);
-    
-    // Auto-advance if marking as easy/hard during review could be logic here, 
-    // but the request asks for manual nav at the bottom.
+  };
+
+  const deleteCard = async (id: string) => {
+    await fetch(`/api/flashcards/${id}`, { method: 'DELETE' });
+    setCards(cards.filter(c => c.id !== id));
+    toast.info("Flashcard purged");
+    if (mainTabCardIndex >= deckCards.length - 1 && mainTabCardIndex > 0) {
+      setMainTabCardIndex(mainTabCardIndex - 1);
+    }
   };
 
   const handleNext = () => {
@@ -971,143 +978,192 @@ function FlashcardsView({ cards, setCards }: { cards: Flashcard[], setCards: (ca
     }
   };
 
+  const currentEditingCard = cards.find(c => c.id === editingCardId);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-white">Flashcards</h2>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        {/* Left Column: Active Review */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-card border border-border p-6 rounded-xl space-y-6">
-            <div className="max-w-xs space-y-1.5">
-              <Label className="text-xs text-zinc-500 font-medium">Active Deck</Label>
-              <Select value={activeDeck} onValueChange={(v) => { setActiveDeck(v); setMainTabCardIndex(0); setMainTabCardFlipped(false); }}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border text-white">
-                  {decks.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
-                <div className="text-xs text-zinc-500 uppercase font-bold tracking-tight mb-1">Needs Review</div>
-                <div className="text-2xl font-bold text-white">{hard_count}</div>
+      {editingCardId ? (
+        <Card className="bg-card border-border p-8 max-w-2xl mx-auto shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <CardHeader className="p-0 mb-6">
+            <h3 className="text-xl font-bold text-white">Edit Flashcard</h3>
+            <p className="text-xs text-zinc-500 uppercase tracking-widest mt-1">Refine your knowledge parameters</p>
+          </CardHeader>
+          <FlashcardForm 
+            cards={cards} 
+            setCards={setCards} 
+            decks={decks} 
+            setActiveDeck={setActiveDeck}
+            cardToEdit={currentEditingCard}
+            onCancel={() => setEditingCardId(null)}
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* Left Column: Active Review */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-card border border-border p-6 rounded-xl space-y-6">
+              <div className="max-w-xs space-y-1.5">
+                <Label className="text-xs text-zinc-500 font-medium">Active Deck</Label>
+                <Select value={activeDeck} onValueChange={(v) => { setActiveDeck(v); setMainTabCardIndex(0); setMainTabCardFlipped(false); }}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border text-white">
+                    {decks.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
-                <div className="text-xs text-zinc-500 uppercase font-bold tracking-tight mb-1">Mastered</div>
-                <div className="text-2xl font-bold text-white">{easy_count}</div>
-              </div>
-            </div>
 
-            <Card className="border-border bg-zinc-900/30">
-              <CardContent className="p-10 flex flex-col items-center min-h-[300px] justify-center text-center space-y-10">
-                {deckCards.length > 0 ? (
-                  <>
-                    <h3 className="text-xl md:text-2xl font-medium text-white max-w-lg leading-snug">
-                      {mainTabCardFlipped ? "Answer" : activeQuestion}
-                    </h3>
-
-                    <div className="w-full space-y-6">
-                      <Button 
-                        onClick={() => setMainTabCardFlipped(!mainTabCardFlipped)}
-                        className="w-full bg-primary text-white font-bold h-12 uppercase tracking-widest text-[11px]"
-                      >
-                        {mainTabCardFlipped ? "Show Question" : "Toggle Answer"}
-                      </Button>
-
-                      {mainTabCardFlipped && (
-                        <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                          <div className="prose prose-invert prose-sm max-w-none text-left p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
-                            <Markdown>{activeAnswer}</Markdown>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <Button 
-                               onClick={() => updateStatus(deckCards[mainTabCardIndex].id, 'Hard')}
-                               variant="outline"
-                               className="border-destructive/30 text-destructive hover:bg-destructive hover:text-white h-10 text-[10px] uppercase font-bold tracking-widest"
-                            >
-                              Hard
-                            </Button>
-                            <Button 
-                               onClick={() => updateStatus(deckCards[mainTabCardIndex].id, 'Easy')}
-                               variant="outline"
-                               className="border-emerald-500/30 text-emerald-500 hover:bg-emerald-500 hover:text-white h-10 text-[10px] uppercase font-bold tracking-widest"
-                            >
-                              Easy
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-zinc-600 italic">No cards in this deck. Use the form to add some.</div>
-                )}
-              </CardContent>
-              <CardFooter className="bg-black/20 border-t border-border flex justify-between items-center px-6 py-4">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={handlePrev} 
-                  disabled={mainTabCardIndex === 0}
-                  className="text-zinc-500 hover:text-white text-[10px] uppercase font-bold tracking-widest disabled:opacity-20"
-                >
-                  <ChevronLeft className="w-4 h-4 mr-2" />
-                  Previous
-                </Button>
-                <div className="text-[10px] font-mono text-zinc-600">
-                  {deckCards.length > 0 ? `${mainTabCardIndex + 1} / ${deckCards.length}` : "0 / 0"}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase font-bold tracking-tight mb-1">Needs Review</div>
+                  <div className="text-2xl font-bold text-white">{hard_count}</div>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={handleNext} 
-                  disabled={mainTabCardIndex >= deckCards.length - 1}
-                  className="text-zinc-500 hover:text-white text-[10px] uppercase font-bold tracking-widest disabled:opacity-20"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-2" />
-                </Button>
-              </CardFooter>
-            </Card>
-          </div>
-        </div>
+                <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
+                  <div className="text-xs text-zinc-500 uppercase font-bold tracking-tight mb-1">Mastered</div>
+                  <div className="text-2xl font-bold text-white">{easy_count}</div>
+                </div>
+              </div>
 
-        {/* Right Column: Create Flashcard */}
-        <div className="lg:col-span-1">
-          <div className="bg-card border border-border p-6 rounded-xl space-y-6 sticky top-6">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Create Flashcard</h3>
-            <FlashcardForm 
-              cards={cards} 
-              setCards={setCards} 
-              decks={decks}
-              setActiveDeck={setActiveDeck}
-            />
+              <Card className="border-border bg-zinc-900/30 relative">
+                {deckCards.length > 0 && (
+                  <div className="absolute top-4 right-4 flex gap-2 z-10">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => setEditingCardId(deckCards[mainTabCardIndex].id)}
+                      className="w-8 h-8 rounded-full text-zinc-500 hover:text-white hover:bg-white/10"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => deleteCard(deckCards[mainTabCardIndex].id)}
+                      className="w-8 h-8 rounded-full text-zinc-500 hover:text-red-500 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+                <CardContent className="p-10 flex flex-col items-center min-h-[300px] justify-center text-center space-y-10">
+                  {deckCards.length > 0 ? (
+                    <>
+                      <h3 className="text-xl md:text-2xl font-medium text-white max-w-lg leading-snug">
+                        {mainTabCardFlipped ? "Answer" : activeQuestion}
+                      </h3>
+
+                      <div className="w-full space-y-6">
+                        <Button 
+                          onClick={() => setMainTabCardFlipped(!mainTabCardFlipped)}
+                          className="w-full bg-primary text-white font-bold h-12 uppercase tracking-widest text-[11px]"
+                        >
+                          {mainTabCardFlipped ? "Show Question" : "Toggle Answer"}
+                        </Button>
+
+                        {mainTabCardFlipped && (
+                          <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="prose prose-invert prose-sm max-w-none text-left p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
+                              <Markdown>{activeAnswer}</Markdown>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <Button 
+                                 onClick={() => updateStatus(deckCards[mainTabCardIndex].id, 'Hard')}
+                                 variant="outline"
+                                 className="border-destructive/30 text-destructive hover:bg-destructive hover:text-white h-10 text-[10px] uppercase font-bold tracking-widest"
+                              >
+                                Hard
+                              </Button>
+                              <Button 
+                                 onClick={() => updateStatus(deckCards[mainTabCardIndex].id, 'Easy')}
+                                 variant="outline"
+                                 className="border-emerald-500/30 text-emerald-500 hover:bg-emerald-500 hover:text-white h-10 text-[10px] uppercase font-bold tracking-widest"
+                              >
+                                Easy
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-zinc-600 italic">No cards in this deck. Use the form to add some.</div>
+                  )}
+                </CardContent>
+                <CardFooter className="bg-black/20 border-t border-border flex justify-between items-center px-6 py-4">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={handlePrev} 
+                    disabled={mainTabCardIndex === 0}
+                    className="text-zinc-500 hover:text-white text-[10px] uppercase font-bold tracking-widest disabled:opacity-20"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Previous
+                  </Button>
+                  <div className="text-[10px] font-mono text-zinc-600">
+                    {deckCards.length > 0 ? `${mainTabCardIndex + 1} / ${deckCards.length}` : "0 / 0"}
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={handleNext} 
+                    disabled={mainTabCardIndex >= deckCards.length - 1}
+                    className="text-zinc-500 hover:text-white text-[10px] uppercase font-bold tracking-widest disabled:opacity-20"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </CardFooter>
+              </Card>
+            </div>
+          </div>
+
+          {/* Right Column: Create Flashcard */}
+          <div className="lg:col-span-1">
+            <div className="bg-card border border-border p-6 rounded-xl space-y-6 sticky top-6">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Create Flashcard</h3>
+              <FlashcardForm 
+                cards={cards} 
+                setCards={setCards} 
+                decks={decks}
+                setActiveDeck={setActiveDeck}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function FlashcardForm({ 
-  cards, setCards, decks, setActiveDeck 
+  cards, setCards, decks, setActiveDeck, cardToEdit, onCancel
 }: { 
   cards: Flashcard[], setCards: (c: Flashcard[]) => void,
-  decks: string[], setActiveDeck: (d: string) => void
+  decks: string[], setActiveDeck: (d: string) => void,
+  cardToEdit?: Flashcard,
+  onCancel?: () => void
 }) {
-  const [question, setQuestion] = useState('');
-  const [answerMarkdown, setAnswerMarkdown] = useState('');
-  const [deckName, setDeckName] = useState('General');
+  const [question, setQuestion] = useState(cardToEdit?.question || '');
+  const [answerMarkdown, setAnswerMarkdown] = useState(cardToEdit?.answer_markdown || '');
+  const [deckName, setDeckName] = useState(cardToEdit?.deck_name || 'General');
   const [isNewDeck, setIsNewDeck] = useState(false);
   const [language, setLanguage] = useState('None');
 
-  const addCard = async () => {
+  useEffect(() => {
+    if (cardToEdit) {
+      setQuestion(cardToEdit.question);
+      setAnswerMarkdown(cardToEdit.answer_markdown);
+      setDeckName(cardToEdit.deck_name);
+    }
+  }, [cardToEdit]);
+
+  const saveCard = async () => {
     if (!question || !answerMarkdown) {
       toast.error("Question and Answer are required.");
       return;
@@ -1126,29 +1182,43 @@ function FlashcardForm({
       processedAnswer = `\`\`\`${langLower}\n${answerMarkdown}\n\`\`\``;
     }
 
-    const newCard: Flashcard = {
-      id: crypto.randomUUID(),
-      deck_name: finalDeckName,
-      question: question,
-      answer_markdown: processedAnswer,
-      deck_status: 'New'
-    };
-    
-    await fetch('/api/flashcards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCard)
-    });
+    if (cardToEdit) {
+      // Update logic
+      const updatedCard = { ...cardToEdit, question, answer_markdown: processedAnswer, deck_name: finalDeckName };
+      await fetch(`/api/flashcards/${cardToEdit.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedCard)
+      });
+      setCards(cards.map(c => c.id === cardToEdit.id ? updatedCard : c));
+      toast.success("Card Updated");
+      if (onCancel) onCancel();
+    } else {
+      // Create logic
+      const newCard: Flashcard = {
+        id: crypto.randomUUID(),
+        deck_name: finalDeckName,
+        question: question,
+        answer_markdown: processedAnswer,
+        deck_status: 'New'
+      };
+      
+      await fetch('/api/flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCard)
+      });
 
-    setCards([...cards, newCard]);
-    setQuestion('');
-    setAnswerMarkdown('');
-    setLanguage('None');
-    if (isNewDeck) {
-      setActiveDeck(finalDeckName);
-      setIsNewDeck(false);
+      setCards([...cards, newCard]);
+      setQuestion('');
+      setAnswerMarkdown('');
+      setLanguage('None');
+      if (isNewDeck) {
+        setActiveDeck(finalDeckName);
+        setIsNewDeck(false);
+      }
+      toast.success("➕ Card Added Successfully");
     }
-    toast.success("➕ Card Added Successfully");
   };
 
   return (
@@ -1223,9 +1293,16 @@ function FlashcardForm({
         />
       </div>
 
-      <Button onClick={addCard} className="w-full bg-white text-black hover:bg-zinc-200 font-bold h-10 uppercase text-[10px] tracking-widest mt-2">
-        ➕ Add Card
-      </Button>
+      <div className="flex gap-2">
+        {onCancel && (
+          <Button variant="ghost" onClick={onCancel} className="grow border border-border text-zinc-500 hover:text-white h-10 uppercase text-[10px] font-bold tracking-widest mt-2">
+            Cancel
+          </Button>
+        )}
+        <Button onClick={saveCard} className={cn("bg-white text-black hover:bg-zinc-200 font-bold h-10 uppercase text-[10px] tracking-widest mt-2", onCancel ? "grow" : "w-full")}>
+          {cardToEdit ? "Save Changes" : "➕ Add Card"}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -106,6 +106,14 @@ export const cardOps = {
   updateDeckStatus: (id: string, deck_status: string) => {
     return db.prepare('UPDATE flashcards SET deck_status = ? WHERE id = ?').run(deck_status, id);
   },
+  update: (id: string, card: any) => {
+    const stmt = db.prepare(`
+      UPDATE flashcards 
+      SET deck_name = ?, question = ?, answer_markdown = ?
+      WHERE id = ?
+    `);
+    return stmt.run(card.deck_name, card.question, card.answer_markdown, id);
+  },
   delete: (id: string) => db.prepare('DELETE FROM flashcards WHERE id = ?').run(id)
 };
 

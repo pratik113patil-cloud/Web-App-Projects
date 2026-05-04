@@ -56,6 +56,10 @@ async function startServer() {
     cardOps.updateDeckStatus(req.params.id, deck_status);
     res.json({ success: true });
   });
+  app.patch('/api/flashcards/:id', (req, res) => {
+    cardOps.update(req.params.id, req.body);
+    res.json({ success: true });
+  });
   app.delete('/api/flashcards/:id', (req, res) => {
     cardOps.delete(req.params.id);
     res.json({ success: true });
