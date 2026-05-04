@@ -163,10 +163,10 @@ export default function App() {
 
         <div className="pt-6 border-t border-sidebar-border flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-500">
-            AS
+            PP
           </div>
           <div className="grow">
-            <div className="text-xs font-bold">A. Sharma</div>
+            <div className="text-xs font-bold">Pratik A. Patil</div>
             <div className="text-[10px] opacity-40">B.Tech CSE - Yr 1</div>
           </div>
           <button className="text-zinc-600 hover:text-white transition-colors">
@@ -180,7 +180,7 @@ export default function App() {
         <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md px-10 py-8 flex justify-between items-end">
           <div>
             <h2 className="text-3xl font-bold tracking-tight">{format(new Date(), 'EEEE, MMM dd')}</h2>
-            <p className="text-zinc-500 text-sm mt-1">Good morning! Systems ready. {tasks.filter(t => t.status === 'pending').length} tasks outstanding.</p>
+            <p className="text-zinc-500 text-sm mt-1">No. of task remaining: {tasks.filter(t => t.status !== 'completed').length}</p>
           </div>
           
           <div className="flex items-center gap-4">
@@ -414,7 +414,7 @@ function Dashboard({
 
         <Card className="flex flex-col p-0 overflow-hidden bg-card border-border shadow-xl">
           <div className="p-4 border-b border-border flex justify-between items-center bg-white/5">
-            <h3 className="font-bold text-sm tracking-tight text-white/90 uppercase">Dynamic Daily Sequence</h3>
+            <h3 className="font-bold text-sm tracking-tight text-white/90 uppercase">Dynamic Daily SCHEDULE</h3>
             <Button 
               variant="ghost" 
               size="icon" 
